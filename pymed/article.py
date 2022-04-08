@@ -26,6 +26,7 @@ class PubMedArticle(object):
         "copyrights",
         "doi",
         "xml",
+        "journal_issue",
     )
 
     def __init__(
@@ -47,7 +48,7 @@ class PubMedArticle(object):
                 self.__setattr__(field, kwargs.get(field, None))
 
     def _extractPubMedId(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//ArticleId[@IdType='pubmed']"
+        path = ".//PMID[@Version='1']"
         return getContent(element=xml_element, path=path)
 
     def _extractTitle(self: object, xml_element: TypeVar("Element")) -> str:
@@ -87,6 +88,10 @@ class PubMedArticle(object):
     def _extractDoi(self: object, xml_element: TypeVar("Element")) -> str:
         path = ".//ArticleId[@IdType='doi']"
         return getContent(element=xml_element, path=path)
+    
+    def _extractJournalIssue(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//ArticleId[@IdType='pii']"
+        return getContent(element=xml_element, path=path)
 
     def _extractPublicationDate(
         self: object, xml_element: TypeVar("Element")
@@ -116,7 +121,12 @@ class PubMedArticle(object):
                 "lastname": getContent(author, ".//LastName", None),
                 "firstname": getContent(author, ".//ForeName", None),
                 "initials": getContent(author, ".//Initials", None),
-                "affiliation": getContent(author, ".//AffiliationInfo/Affiliation", None),
+                #"affiliation": getContent(author, ".//AffiliationInfo/Affiliation", None),     # Original pymed
+                # New affiliation code
+                "affiliation": [ getContent(aff_info, ".//Affiliation", None) for aff_info in author.findall(".//AffiliationInfo") ],
+                "collective_name": getContent(author, ".//CollectiveName", None),              
+
+
             }
             for author in xml_element.findall(".//Author")
         ]
@@ -139,6 +149,7 @@ class PubMedArticle(object):
         self.publication_date = self._extractPublicationDate(xml_element)
         self.authors = self._extractAuthors(xml_element)
         self.xml = xml_element
+        self.journal_issue = self._extractJournalIssue(xml_element)
 
     def toDict(self: object) -> dict:
         """ Helper method to convert the parsed information to a Python dict.

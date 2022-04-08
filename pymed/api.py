@@ -2,6 +2,8 @@ import datetime
 import requests
 import itertools
 
+from urllib.parse import urlencode
+
 import xml.etree.ElementTree as xml
 
 from typing import Union
@@ -46,7 +48,7 @@ class PubMed(object):
         # Define the standard / default query parameters
         self.parameters = {"tool": tool, "email": email, "db": "pubmed"}
 
-    def query(self: object, query: str, max_results: int = 100):
+    def query(self: object, query: str, max_results: int = 500):
         """ Method that executes a query agains the GraphQL schema, automatically
             inserting the PubMed data loader.
 
@@ -206,7 +208,8 @@ class PubMed(object):
 
         # Make the first request to PubMed
         response = self._get(url="/entrez/eutils/esearch.fcgi", parameters=parameters)
-
+        qstr = urlencode(parameters)
+        print(qstr)
         # Add the retrieved IDs to the list
         article_ids += response.get("esearchresult", {}).get("idlist", [])
 
