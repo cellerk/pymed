@@ -18,7 +18,9 @@ class PubMedArticle(object):
         "abstract",
         "keywords",
         "journal",
+        "journal_abbr",
         "publication_date",
+        "publication_date_string",
         "authors",
         "methods",
         "conclusions",
@@ -26,7 +28,11 @@ class PubMedArticle(object):
         "copyrights",
         "doi",
         "xml",
+        # New additions, by me
+        "journal_volume",
         "journal_issue",
+        "journal_pagination",
+        "publication_type"
     )
 
     def __init__(
@@ -47,8 +53,14 @@ class PubMedArticle(object):
             for field in self.__slots__:
                 self.__setattr__(field, kwargs.get(field, None))
 
+    # Original function _extractPubMedId (returned many results)
+    #def _extractPubMedId(self: object, xml_element: TypeVar("Element")) -> str:
+        #path = ".//ArticleId[@IdType='pubmed']"
+        #return getContent(element=xml_element, path=path)
+
+    # New function _extractPubMedId (written by me)
     def _extractPubMedId(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//PMID[@Version='1']"
+        path = ".//MedlineCitation/PMID"
         return getContent(element=xml_element, path=path)
 
     def _extractTitle(self: object, xml_element: TypeVar("Element")) -> str:
@@ -63,6 +75,10 @@ class PubMedArticle(object):
 
     def _extractJournal(self: object, xml_element: TypeVar("Element")) -> str:
         path = ".//Journal/Title"
+        return getContent(element=xml_element, path=path)
+    
+    def _extractJournalAbbr(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//Journal/ISOAbbreviation"
         return getContent(element=xml_element, path=path)
 
     def _extractAbstract(self: object, xml_element: TypeVar("Element")) -> str:
@@ -86,24 +102,45 @@ class PubMedArticle(object):
         return getContent(element=xml_element, path=path)
 
     def _extractDoi(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//ArticleId[@IdType='doi']"
+        path = ".//PubmedData/ArticleIdList/ArticleId[@IdType='doi']"
         return getContent(element=xml_element, path=path)
-    
+
+    def _extractJournalVolume(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//Journal/JournalIssue/Volume"
+        return getContent(element=xml_element, path=path)
+
     def _extractJournalIssue(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//ArticleId[@IdType='pii']"
+        path = ".//Journal/JournalIssue/Issue"
+        return getContent(element=xml_element, path=path)
+
+    def _extractJournalPagination(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//Article/Pagination/MedlinePgn"
+        return getContent(element=xml_element, path=path)
+
+    def _extractPublicationType(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//Article/PublicationTypeList/PublicationType[@UI='D016428']"
         return getContent(element=xml_element, path=path)
 
     def _extractPublicationDate(
         self: object, xml_element: TypeVar("Element")
     ) -> TypeVar("datetime.datetime"):
         # Get the publication date
+        
         try:
-
             # Get the publication elements
-            publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
-            publication_year = int(getContent(publication_date, ".//Year", None))
-            publication_month = int(getContent(publication_date, ".//Month", "1"))
-            publication_day = int(getContent(publication_date, ".//Day", "1"))
+            #publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
+            publication_date = xml_element.find(".//MedlineCitation/Article/Journal/JournalIssue/PubDate")
+
+            if publication_date is not None:
+                publication_year = int(getContent(publication_date, ".//Year", None))
+                publication_month = self.extract_publication_month(publication_date)
+                publication_day = int(getContent(publication_date, ".//Day", "1"))
+            
+            else:
+                publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
+                publication_year = int(getContent(publication_date, ".//Year", None))
+                publication_month = int(getContent(publication_date, ".//Month", 1))
+                publication_day = int(getContent(publication_date, ".//Day", "1"))
 
             # Construct a datetime object from the info
             return datetime.date(
@@ -115,18 +152,64 @@ class PubMedArticle(object):
             print(e)
             return None
 
+    def _extractPublicationDateString(
+        self: object, xml_element: TypeVar("Element")
+    ) -> str:
+        # Get the publication date as a string
+        
+        try:
+            # Get the publication elements
+            #publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
+            publication_date = xml_element.find(".//MedlineCitation/Article/Journal/JournalIssue/PubDate")
+
+            if publication_date is not None:
+                if xml_element.find(".//MedlineDate") is not None:
+                    return getContent(publication_date, ".//MedlineDate", None)
+                else:    
+                    publication_year = int(getContent(publication_date, ".//Year", None))
+                    publication_month = self.extract_publication_month(publication_date)
+                    publication_day = int(getContent(publication_date, ".//Day", "1"))
+            
+            else:
+                publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
+                publication_year = int(getContent(publication_date, ".//Year", None))
+                publication_month = int(getContent(publication_date, ".//Month", 1))
+                publication_day = int(getContent(publication_date, ".//Day", "1"))
+
+            # Construct a datetime object from the info
+            publication_date_datetime = datetime.date(year=publication_year, month=publication_month, day=publication_day)
+            return publication_date_datetime.strftime("%Y %b %d")
+
+        # Unable to parse the datetime
+        except Exception as e:
+            print(e)
+            return None
+
+    def extract_publication_month(self, publication_date):
+        month_str = getContent(publication_date, ".//Month", "1")
+        try:
+            return int(month_str)
+        except ValueError:
+            return monthToNum(month_str.lower())
+
+    #def _extractAffiliation(self: object, xml_element: TypeVar("Element")) -> list:
+    #    return [
+    #        {
+    #            "affiliation": getContent(affiliation, ".//Affiliation", None),
+    #        }
+    #       for affiliation in xml_element.findall(".//AffiliationInfo")
+    #    ]
+    
     def _extractAuthors(self: object, xml_element: TypeVar("Element")) -> list:
         return [
             {
                 "lastname": getContent(author, ".//LastName", None),
                 "firstname": getContent(author, ".//ForeName", None),
                 "initials": getContent(author, ".//Initials", None),
-                #"affiliation": getContent(author, ".//AffiliationInfo/Affiliation", None),     # Original pymed
-                # New affiliation code
+                #"affiliation": getContent(author, ".//AffiliationInfo/Affiliation", None),
                 "affiliation": [ getContent(aff_info, ".//Affiliation", None) for aff_info in author.findall(".//AffiliationInfo") ],
-                "collective_name": getContent(author, ".//CollectiveName", None),              
-
-
+                #"affiliation": self._extractAffiliation(xml_element.findall(".//Author")),
+                "collective_name": getContent(author, ".//CollectiveName", None),               # New addition added by me! 03.10.2022
             }
             for author in xml_element.findall(".//Author")
         ]
@@ -140,6 +223,7 @@ class PubMedArticle(object):
         self.title = self._extractTitle(xml_element)
         self.keywords = self._extractKeywords(xml_element)
         self.journal = self._extractJournal(xml_element)
+        self.journal_abbr = self._extractJournalAbbr(xml_element)
         self.abstract = self._extractAbstract(xml_element)
         self.conclusions = self._extractConclusions(xml_element)
         self.methods = self._extractMethods(xml_element)
@@ -147,9 +231,13 @@ class PubMedArticle(object):
         self.copyrights = self._extractCopyrights(xml_element)
         self.doi = self._extractDoi(xml_element)
         self.publication_date = self._extractPublicationDate(xml_element)
+        self.publication_date_string = self._extractPublicationDateString(xml_element)
         self.authors = self._extractAuthors(xml_element)
         self.xml = xml_element
+        self.journal_volume = self._extractJournalVolume(xml_element)
         self.journal_issue = self._extractJournalIssue(xml_element)
+        self.journal_pagination = self._extractJournalPagination(xml_element)
+        self.publication_type = self._extractPublicationType(xml_element)
 
     def toDict(self: object) -> dict:
         """ Helper method to convert the parsed information to a Python dict.
@@ -169,3 +257,19 @@ class PubMedArticle(object):
             sort_keys=True,
             indent=4,
         )
+
+def monthToNum(shortMonth):
+    return {
+            'jan': 1,
+            'feb': 2,
+            'mar': 3,
+            'apr': 4,
+            'may': 5,
+            'jun': 6,
+            'jul': 7,
+            'aug': 8,
+            'sep': 9, 
+            'oct': 10,
+            'nov': 11,
+            'dec': 12
+    }[shortMonth]

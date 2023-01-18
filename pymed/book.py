@@ -13,10 +13,13 @@ class PubMedBookArticle(object):
 
     __slots__ = (
         "pubmed_id",
-        "title",
+        "booktitle",
+        "articletitle",
         "abstract",
         "publication_date",
+        "publication_date_string",
         "authors",
+        "editors",
         "copyrights",
         "doi",
         "isbn",
@@ -44,13 +47,23 @@ class PubMedBookArticle(object):
         else:
             for field in self.__slots__:
                 self.__setattr__(field, kwargs.get(field, None))
+    
+    # Original function _extractPubMedId (returned many results)
+    #def _extractPubMedId(self: object, xml_element: TypeVar("Element")) -> str:
+    #    path = ".//ArticleId[@IdType='pubmed']"
+    #    return getContent(element=xml_element, path=path)
 
+    # New function _extractPubMedId (written by me)
     def _extractPubMedId(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//ArticleId[@IdType='pubmed']"
+        path = ".//BookDocument/PMID"
         return getContent(element=xml_element, path=path)
 
-    def _extractTitle(self: object, xml_element: TypeVar("Element")) -> str:
+    def _extractBookTitle(self: object, xml_element: TypeVar("Element")) -> str:
         path = ".//BookTitle"
+        return getContent(element=xml_element, path=path)
+    
+    def _extractArticleTitle(self: object, xml_element: TypeVar("Element")) -> str:
+        path = ".//ArticleTitle"
         return getContent(element=xml_element, path=path)
 
     def _extractAbstract(self: object, xml_element: TypeVar("Element")) -> str:
@@ -79,25 +92,43 @@ class PubMedBookArticle(object):
 
     def _extractPublicationDate(self: object, xml_element: TypeVar("Element")) -> str:
         path = ".//PubDate/Year"
+        #path = ".//ContributionDate"
         return getContent(element=xml_element, path=path)
 
     def _extractPublisher(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//Publisher/PublisherName"
+        path = ".//Book/Publisher/PublisherName"
         return getContent(element=xml_element, path=path)
 
     def _extractPublisherLocation(self: object, xml_element: TypeVar("Element")) -> str:
-        path = ".//Publisher/PublisherLocation"
+        path = ".//Book/Publisher/PublisherLocation"
         return getContent(element=xml_element, path=path)
+
+    def _extractEditors(self: object, xml_element: TypeVar("Element")) -> list:
+        return [
+            {
+                "lastname": getContent(editor, ".//LastName", None),
+                "firstname": getContent(editor, ".//ForeName", None),
+                "initials": getContent(editor, ".//Initials", None),
+                #"affiliation": getContent(editor, ".//AffiliationInfo/Affiliation", None),
+                "affiliation": [ getContent(aff_info, ".//Affiliation", None) for aff_info in editor.findall(".//AffiliationInfo") ],
+                #"affiliation": self._extractAffiliation(xml_element.findall(".//Author")),
+                "collective_name": getContent(editor, ".//CollectiveName", None),               # New addition added by me! 03.10.2022
+            }
+            for editor in xml_element.findall(".//AuthorList[@Type='editors']/Author")
+        ]
 
     def _extractAuthors(self: object, xml_element: TypeVar("Element")) -> list:
         return [
             {
-                "collective": getContent(author, path=".//CollectiveName"),
-                "lastname": getContent(element=author, path=".//LastName"),
-                "firstname": getContent(element=author, path=".//ForeName"),
-                "initials": getContent(element=author, path=".//Initials"),
+                "lastname": getContent(author, ".//LastName", None),
+                "firstname": getContent(author, ".//ForeName", None),
+                "initials": getContent(author, ".//Initials", None),
+                #"affiliation": getContent(author, ".//AffiliationInfo/Affiliation", None),
+                "affiliation": [ getContent(aff_info, ".//Affiliation", None) for aff_info in author.findall(".//AffiliationInfo") ],
+                #"affiliation": self._extractAffiliation(xml_element.findall(".//Author")),
+                "collective_name": getContent(author, ".//CollectiveName", None),               # New addition added by me! 03.10.2022
             }
-            for author in xml_element.findall(".//Author")
+            for author in xml_element.findall(".//AuthorList[@Type='authors']/Author")
         ]
 
     def _extractSections(self: object, xml_element: TypeVar("Element")) -> list:
@@ -108,6 +139,37 @@ class PubMedBookArticle(object):
             }
             for section in xml_element.findall(".//Section")
         ]
+    
+    def _extractPublicationDateString(
+        self: object, xml_element: TypeVar("Element")
+    ) -> str:
+        # Get the publication date as a string
+        
+        try:
+            # Get the publication elements
+            #publication_date = xml_element.find(".//PubMedPubDate[@PubStatus='pubmed']")
+            publication_date = xml_element.find(".//ContributionDate")
+
+            if publication_date is not None:
+                publication_year = int(getContent(publication_date, ".//Year", None))
+                publication_month = self.extract_publication_month(publication_date)
+                publication_day = int(getContent(publication_date, ".//Day", "1"))
+            
+            # Construct a datetime object from the info
+            publication_date_datetime = datetime.date(year=publication_year, month=publication_month, day=publication_day)
+            return publication_date_datetime.strftime("%Y %b %d")
+
+        # Unable to parse the datetime
+        except Exception as e:
+            print(e)
+            return None
+
+    def extract_publication_month(self, publication_date):
+        month_str = getContent(publication_date, ".//Month", "1")
+        try:
+            return int(month_str)
+        except ValueError:
+            return monthToNum(month_str.lower())
 
     def _initializeFromXML(self: object, xml_element: TypeVar("Element")) -> None:
         """ Helper method that parses an XML element into an article object.
@@ -115,13 +177,16 @@ class PubMedBookArticle(object):
 
         # Parse the different fields of the article
         self.pubmed_id = self._extractPubMedId(xml_element)
-        self.title = self._extractTitle(xml_element)
+        self.booktitle = self._extractBookTitle(xml_element)
+        self.articletitle = self._extractArticleTitle(xml_element)
         self.abstract = self._extractAbstract(xml_element)
         self.copyrights = self._extractCopyrights(xml_element)
         self.doi = self._extractDoi(xml_element)
         self.isbn = self._extractIsbn(xml_element)
         self.language = self._extractLanguage(xml_element)
         self.publication_date = self._extractPublicationDate(xml_element)
+        self.publication_date_string = self._extractPublicationDateString(xml_element)
+        self.editors = self._extractEditors(xml_element)
         self.authors = self._extractAuthors(xml_element)
         self.publication_type = self._extractPublicationType(xml_element)
         self.publisher = self._extractPublisher(xml_element)
@@ -149,3 +214,21 @@ class PubMedBookArticle(object):
             sort_keys=True,
             indent=4,
         )
+    
+
+
+def monthToNum(shortMonth):
+    return {
+        'jan': 1,
+        'feb': 2,
+        'mar': 3,
+        'apr': 4,
+        'may': 5,
+        'jun': 6,
+        'jul': 7,
+        'aug': 8,
+        'sep': 9, 
+        'oct': 10,
+        'nov': 11,
+        'dec': 12
+    }[shortMonth]
